@@ -132,4 +132,54 @@ bool addSyntheticExports(PEFile& pe, uint64_t imageBase,
     return true;
 }
 
+std::vector<ExportEntry> readExports(const PEFile& pe) {
+    std::vector<ExportEntry> result;
+    if (!pe.nt) return result;
+    uint32_t expRVA = pe.nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
+    uint32_t expSize = pe.nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
+    if (!expRVA || !expSize) return result;
+
+    uint32_t dirOff = pe.rvaToOffset(expRVA);
+    if (!dirOff || dirOff + 40 > pe.data.size()) return result;
+
+    const uint8_t* p = pe.data.data() + dirOff;
+    uint32_t ordinalBase = *(uint32_t*)(p + 0x10);
+    uint32_t numFuncs    = *(uint32_t*)(p + 0x14);
+    uint32_t numNames    = *(uint32_t*)(p + 0x18);
+    uint32_t funcTblRVA  = *(uint32_t*)(p + 0x1C);
+    uint32_t nameTblRVA  = *(uint32_t*)(p + 0x20);
+    uint32_t ordTblRVA   = *(uint32_t*)(p + 0x24);
+
+    uint32_t funcTblOff = pe.rvaToOffset(funcTblRVA);
+    uint32_t nameTblOff = pe.rvaToOffset(nameTblRVA);
+    uint32_t ordTblOff  = pe.rvaToOffset(ordTblRVA);
+    if (!funcTblOff) return result;
+
+    result.resize(numFuncs);
+    for (uint32_t i = 0; i < numFuncs; i++) {
+        if (funcTblOff + i * 4 + 4 > pe.data.size()) break;
+        uint32_t fnRVA = *(uint32_t*)(pe.data.data() + funcTblOff + i * 4);
+        result[i].rva = fnRVA;
+        result[i].ordinal = ordinalBase + i;
+        result[i].isForwarder = (fnRVA >= expRVA && fnRVA < expRVA + expSize);
+    }
+
+    if (nameTblOff && ordTblOff) {
+        for (uint32_t i = 0; i < numNames; i++) {
+            if (nameTblOff + i * 4 + 4 > pe.data.size()) break;
+            if (ordTblOff + i * 2 + 2 > pe.data.size()) break;
+            uint32_t nameRVA = *(uint32_t*)(pe.data.data() + nameTblOff + i * 4);
+            uint16_t ord = *(uint16_t*)(pe.data.data() + ordTblOff + i * 2);
+            uint32_t nameOff = pe.rvaToOffset(nameRVA);
+            if (!nameOff || nameOff >= pe.data.size()) continue;
+
+            uint32_t end = nameOff;
+            while (end < pe.data.size() && pe.data[end] != 0) end++;
+            std::string name((const char*)pe.data.data() + nameOff, end - nameOff);
+            if (ord < numFuncs) result[ord].name = std::move(name);
+        }
+    }
+    return result;
+}
+
 } // namespace pefix
