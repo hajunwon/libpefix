@@ -20,6 +20,7 @@ Built for reverse engineers working with memory dumps, packed executables, and p
 - **x86-64 decoder** — lightweight instruction decoder (subset) with IR representation
 - **CFG builder** — construct control flow graphs from arbitrary entry points
 - **Abstract interpreter** — emulate x86-64 with sparse memory model for constant propagation
+- **Constant propagation** — dataflow engine over the IR with typed-pointer tracking and CALL/JMP mem-operand resolution for devirtualization
 - **Static tracer** — trace execution paths through obfuscated code, recording calls and arguments
 - **EB FF patching** — NOP common anti-disassembly patterns
 
@@ -87,6 +88,7 @@ include/pefix/          public headers
   exports.h            synthetic export table
   coffsyms.h           COFF symbol embedding
   analysis.h           RTTI, naming, JMP flatten, import chain
+  constprop.h          dataflow engine (AbstractValue + ConstProp)
   x86_64/
     ir.h               instruction IR (registers, opcodes, values)
     disasm.h           subset x86-64 decoder + CFG builder

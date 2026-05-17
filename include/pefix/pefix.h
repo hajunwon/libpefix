@@ -8,6 +8,7 @@
 #include <pefix/exports.h>
 #include <pefix/coffsyms.h>
 #include <pefix/analysis.h>
+#include <pefix/constprop.h>
 #include <pefix/x86_64/ir.h>
 #include <pefix/x86_64/disasm.h>
 #include <pefix/x86_64/emu.h>

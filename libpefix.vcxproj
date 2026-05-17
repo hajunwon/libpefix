@@ -40,6 +40,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\log.cpp" />
+    <ClCompile Include="src\constprop.cpp" />
     <ClCompile Include="src\pe.cpp" />
     <ClCompile Include="src\sections.cpp" />
     <ClCompile Include="src\xrefs.cpp" />
@@ -52,6 +53,7 @@
     <ClCompile Include="tools\libpefix.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="include\pefix\constprop.h" />
     <ClInclude Include="include\pefix\pe.h" />
     <ClInclude Include="include\pefix\sections.h" />
     <ClInclude Include="include\pefix\xrefs.h" />
