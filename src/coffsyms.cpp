@@ -1,4 +1,5 @@
 #include <pefix/coffsyms.h>
+#include <pefix/log.h>
 #include <cstring>
 #include <algorithm>
 
@@ -29,7 +30,7 @@ bool embedCoffSymbols(PEFile& pe, uint64_t imageBase,
     (void)imageBase;
     if (symbols.empty()) return false;
 
-    printf("[*] Embedding COFF symbol table: %zu entries\n", symbols.size());
+    log::info("Embedding COFF symbol table: %zu entries", symbols.size());
 
     std::vector<CoffSymbol> symTable;
     std::vector<uint8_t> strTable;
@@ -89,8 +90,8 @@ bool embedCoffSymbols(PEFile& pe, uint64_t imageBase,
     pe.nt->FileHeader.PointerToSymbolTable = symTableOffset;
     pe.nt->FileHeader.NumberOfSymbols = (DWORD)symTable.size();
 
-    printf("[+] COFF symbols embedded: %zu entries (%zu KB sym + %zu KB strings)\n",
-           symTable.size(), symBytes / 1024, strTable.size() / 1024);
+    log::ok("COFF symbols embedded: %zu entries (%zu KB sym + %zu KB strings)",
+            symTable.size(), symBytes / 1024, strTable.size() / 1024);
     return true;
 }
 

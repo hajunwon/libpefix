@@ -1,8 +1,26 @@
 #include <pefix/pefix.h>
+#include <pefix/log.h>
 #include "cli.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+
+static void cli_sink(int level, const char* msg) {
+    char buf[8192];
+    size_t n = strlen(msg);
+    if (n >= sizeof(buf)) n = sizeof(buf) - 1;
+    memcpy(buf, msg, n);
+    buf[n] = 0;
+    while (n && buf[n - 1] == '\n') buf[--n] = 0;
+    switch (level) {
+        case pefix::log::OK:     cli::ok("%s", buf);     break;
+        case pefix::log::FAIL:   cli::fail("%s", buf);   break;
+        case pefix::log::WARN:   cli::warn("%s", buf);   break;
+        case pefix::log::INFO:   cli::info("%s", buf);   break;
+        case pefix::log::DETAIL: cli::detail("%s", buf); break;
+        default:                 fputs(buf, stdout); fputc('\n', stdout); break;
+    }
+}
 
 static void printUsage(const char* exe) {
     printf("pefix -- PE analysis toolkit for dumped/obfuscated x86-64 binaries\n\n");
@@ -114,6 +132,7 @@ static int patchEbFf(pefix::PEFile& pe) {
 }
 
 int main(int argc, char* argv[]) {
+    pefix::log::set_sink(cli_sink);
     if (argc < 2) {
         printUsage(argv[0]);
         return 1;

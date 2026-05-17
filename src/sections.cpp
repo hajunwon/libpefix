@@ -1,4 +1,5 @@
 #include <pefix/sections.h>
+#include <pefix/log.h>
 
 namespace pefix {
 
@@ -45,7 +46,7 @@ bool appendSection(PEFile& pe, const char* name, const std::vector<uint8_t>& sec
 
     size_t secTableEnd = (size_t)((uint8_t*)&pe.sections[pe.numSections] - pe.data.data());
     if (secTableEnd + sizeof(IMAGE_SECTION_HEADER) > pe.sections[0].PointerToRawData) {
-        fprintf(stderr, "[!] No room in PE header for new section header.\n");
+        log::warn("No room in PE header for new section header.");
         return false;
     }
 
@@ -154,7 +155,7 @@ int recoverHiddenSections(PEFile& pe) {
         pe.reparse();
         added++;
 
-        printf("    Added .text section: VA=0x%08X  Size=0x%08X\n", gap.start, gap.size);
+        log::detail("Added .text section: VA=0x%08X  Size=0x%08X", gap.start, gap.size);
     }
 
     return added;

@@ -39,6 +39,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\log.cpp" />
     <ClCompile Include="src\pe.cpp" />
     <ClCompile Include="src\sections.cpp" />
     <ClCompile Include="src\xrefs.cpp" />

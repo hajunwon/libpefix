@@ -1,4 +1,5 @@
 #include <pefix/xrefs.h>
+#include <pefix/log.h>
 
 namespace pefix {
 
@@ -294,11 +295,11 @@ std::vector<RipRelativeRef> scanRipRelativeRefs(const PEFile& pe, uint64_t image
 
         char name[9] = {};
         memcpy(name, pe.sections[i].Name, 8);
-        printf("    Scanning section [%s] (VA=0x%X, size=0x%X)...\n", name, va, rawSz);
+        log::detail("Scanning section [%s] (VA=0x%X, size=0x%X)...", name, va, rawSz);
 
         size_t before = allRefs.size();
         scanForRipRelative(pe.data.data() + rawOff, rawSz, va, imageBase, allRefs);
-        printf("      Found %zu RIP-relative references\n", allRefs.size() - before);
+        log::raw("      Found %zu RIP-relative references\n", allRefs.size() - before);
     }
 
     return allRefs;
@@ -332,7 +333,7 @@ std::vector<PointerRef> resolvePointerChains(const PEFile& pe, uint64_t imageBas
 
             result.push_back({ptrRVA, targetRVA});
         }
-        printf("    [%s] %zu pointers\n", name, result.size() - before);
+        log::detail("[%s] %zu pointers", name, result.size() - before);
     }
 
     return result;

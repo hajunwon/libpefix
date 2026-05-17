@@ -1,4 +1,5 @@
 #include <pefix/exports.h>
+#include <pefix/log.h>
 #include <pefix/sections.h>
 #include <algorithm>
 #include <cstring>
@@ -59,10 +60,10 @@ bool addSyntheticExports(PEFile& pe, uint64_t imageBase,
 
     auto& expDir = pe.nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
     if (expDir.VirtualAddress != 0) {
-        printf("[!] PE already has an export directory at RVA 0x%X -- overwriting\n", expDir.VirtualAddress);
+        log::warn("PE already has an export directory at RVA 0x%X -- overwriting", expDir.VirtualAddress);
     }
 
-    printf("[*] Building synthetic export table: %u entries\n", numFuncs);
+    log::info("Building synthetic export table: %u entries", numFuncs);
 
     uint32_t nameStringsSize = 0;
     for (auto& e : sorted) nameStringsSize += (uint32_t)e.name.size() + 1;
@@ -120,15 +121,15 @@ bool addSyntheticExports(PEFile& pe, uint64_t imageBase,
 
     if (!appendSection(pe, ".edata", expData,
             IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ)) {
-        printf("[!] Failed to append .edata section\n");
+        log::warn("Failed to append .edata section");
         return false;
     }
 
     pe.nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress = newSectionRVA;
     pe.nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size = totalSize;
 
-    printf("[+] Synthetic export table added: %u entries in .edata section (RVA=0x%X)\n",
-           numFuncs, newSectionRVA);
+    log::ok("Synthetic export table added: %u entries in .edata section (RVA=0x%X)",
+            numFuncs, newSectionRVA);
     return true;
 }
 
