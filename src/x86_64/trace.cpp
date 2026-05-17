@@ -10,7 +10,7 @@ Tracer::Tracer(const PEFile& pe, uint64_t imageBase)
 {
     stackBase_ = 0x7FFE0000ULL;
     stackTop_ = stackBase_ + 0x10000ULL;
-    regs_[(int)Reg::RSP] = stackTop_ - 0x100;
+    regs_[(int)Reg::RSP] = stackBase_ + 0x8000;
     for (int i = 0; i < 16; i++) {
         if (i != (int)Reg::RSP)
             regs_[i] = 0;
@@ -29,6 +29,10 @@ void Tracer::setStack(uint64_t offset, uint64_t val) {
 
 void Tracer::watchFunction(uint32_t rva) {
     watchedFuncs_.insert(rva);
+}
+
+void Tracer::addRegOverride(uint32_t rva, int reg, uint64_t val) {
+    regOverrides_[rva].push_back({reg, val});
 }
 
 bool Tracer::isStackAddr(uint64_t addr) {
@@ -58,6 +62,10 @@ uint64_t Tracer::readMem(uint64_t addr, Width w) {
         if (bytes == 8) {
             auto it = stackMem_.find(addr);
             if (it != stackMem_.end()) return it->second;
+            if (stackFallback_) {
+                uint64_t val = 0;
+                if (stackFallback_(addr, w, val)) return val;
+            }
             return 0;
         }
         uint64_t aligned = addr & ~7ULL;
@@ -67,6 +75,10 @@ uint64_t Tracer::readMem(uint64_t addr, Width w) {
             uint32_t shift = (uint32_t)((addr - aligned) * 8);
             uint64_t mask = ((1ULL << ((uint32_t)w)) - 1);
             return (qval >> shift) & mask;
+        }
+        if (stackFallback_) {
+            uint64_t val = 0;
+            if (stackFallback_(addr, w, val)) return val;
         }
         return 0;
     }
@@ -375,7 +387,7 @@ Tracer::ExecAction Tracer::execInstr(const Instr& instr, uint64_t /*va*/) {
     case Op::RET:
         return STOP;
     default:
-        return STOP;
+        return SKIP;
     }
 
     return CONTINUE;
@@ -397,11 +409,39 @@ TraceResult Tracer::trace(uint32_t startRVA, uint32_t maxSteps) {
     const uint32_t maxCallDepth = 32;
 
     std::unordered_map<uint64_t, uint32_t> visitCount;
-    const uint32_t maxVisitPerAddr = 8;
+    const uint32_t maxVisitPerAddr = maxVisit_;
+
+    auto emitLog = [&](const Instr& instr, uint32_t step, uint32_t rva) {
+        if (!traceLog_ || step >= traceLogLimit_) return;
+        TraceStep ts = {};
+        ts.step = step;
+        ts.rva = rva;
+        ts.op = instr.op;
+        memcpy(ts.regs, regs_, sizeof(regs_));
+        ts.memRead = false;
+        if (instr.src1.isMem()) {
+            ts.memAddr = resolveAddr(instr.src1);
+            ts.memVal = readMem(ts.memAddr, instr.src1.width);
+            ts.memRead = true;
+            ts.isStack = isStackAddr(ts.memAddr);
+        }
+        traceLog_(ts);
+    };
 
     uint32_t steps = 0;
+    uint32_t soiCheck = pe_.nt->OptionalHeader.SizeOfImage;
+    lastProgress_ = 0;
     while (steps < maxSteps) {
-        if (rip < imageBase_) {
+        if (progressTimeout_ > 0 && steps - lastProgress_ > progressTimeout_) {
+            result.stopReason = "no progress";
+            break;
+        }
+        if (rip < imageBase_ || (uint32_t)(rip - imageBase_) >= soiCheck) {
+            if (skipExternal_) {
+                if (!callStack.empty()) { rip = callStack.back().returnAddr; callStack.pop_back(); steps++; continue; }
+                result.stopReason = "RIP outside image (top-level)";
+                break;
+            }
             result.stopReason = "RIP below image base";
             break;
         }
@@ -410,6 +450,12 @@ TraceResult Tracer::trace(uint32_t startRVA, uint32_t maxSteps) {
 
         uint32_t& vc = visitCount[rip];
         if (vc >= maxVisitPerAddr) {
+            if (skipExternal_) {
+                forceFlipNext_ = true;
+                vc = 0;
+                steps++;
+                continue;
+            }
             result.stopReason = "loop detected";
             break;
         }
@@ -462,6 +508,12 @@ TraceResult Tracer::trace(uint32_t startRVA, uint32_t maxSteps) {
             break;
         }
 
+        auto ovIt = regOverrides_.find(rva);
+        if (ovIt != regOverrides_.end()) {
+            for (auto& ov : ovIt->second)
+                if (ov.reg >= 0 && ov.reg < 16) regs_[ov.reg] = ov.val;
+        }
+
         Instr instr;
         uint32_t len = disasm.decodeOne(off, rip, instr);
         if (len == 0) {
@@ -484,12 +536,19 @@ TraceResult Tracer::trace(uint32_t startRVA, uint32_t maxSteps) {
             instr.dst.imm = (int64_t)rip + (int64_t)len + instr.dst.imm;
         }
 
+        emitLog(instr, steps, rva);
+
         // Control flow
         if (instr.op == Op::JMP) {
             uint64_t target = resolveValue(instr.dst);
             if (target == 0) {
+                if (skipExternal_) { rip += len; steps++; continue; }
                 result.stopReason = "JMP to null";
                 break;
+            }
+            uint32_t soi = pe_.nt->OptionalHeader.SizeOfImage;
+            if (skipExternal_ && (target < imageBase_ || (uint32_t)(target - imageBase_) >= soi)) {
+                rip += len; steps++; continue;
             }
             rip = target;
             steps++;
@@ -498,6 +557,7 @@ TraceResult Tracer::trace(uint32_t startRVA, uint32_t maxSteps) {
 
         if (instr.op == Op::JCC) {
             bool taken = evalCC(instr.cc);
+            if (forceFlipNext_) { taken = !taken; forceFlipNext_ = false; }
             if (taken) {
                 uint64_t target = resolveValue(instr.dst);
                 if (target == 0) {
@@ -515,13 +575,21 @@ TraceResult Tracer::trace(uint32_t startRVA, uint32_t maxSteps) {
         if (instr.op == Op::CALL) {
             uint64_t target = resolveValue(instr.dst);
             if (target == 0) {
+                if (skipExternal_) { rip += len; steps++; continue; }
                 result.stopReason = "CALL to null";
                 break;
             }
 
             uint32_t targetRVA = (uint32_t)(target - imageBase_);
+            uint32_t soi = pe_.nt->OptionalHeader.SizeOfImage;
+            if (skipExternal_ && (target < imageBase_ || targetRVA >= soi)) {
+                regs_[(int)Reg::RAX] = 0;
+                rip += len;
+                steps++;
+                continue;
+            }
 
-            if (watchedFuncs_.count(targetRVA)) {
+            {
                 TraceCall tc;
                 tc.callerVA = rip;
                 tc.targetVA = target;
@@ -530,7 +598,12 @@ TraceResult Tracer::trace(uint32_t startRVA, uint32_t maxSteps) {
                 tc.args[2] = regs_[(int)Reg::R8];
                 tc.args[3] = regs_[(int)Reg::R9];
                 tc.rax = regs_[(int)Reg::RAX];
+                memcpy(tc.regs, regs_, sizeof(regs_));
                 calls_.push_back(tc);
+                lastProgress_ = steps;
+            }
+
+            if (watchedFuncs_.count(targetRVA)) {
                 rip += len;
                 steps++;
                 continue;
@@ -544,16 +617,6 @@ TraceResult Tracer::trace(uint32_t startRVA, uint32_t maxSteps) {
                 continue;
             }
 
-            // Record and skip
-            TraceCall tc;
-            tc.callerVA = rip;
-            tc.targetVA = target;
-            tc.args[0] = regs_[(int)Reg::RCX];
-            tc.args[1] = regs_[(int)Reg::RDX];
-            tc.args[2] = regs_[(int)Reg::R8];
-            tc.args[3] = regs_[(int)Reg::R9];
-            tc.rax = regs_[(int)Reg::RAX];
-            calls_.push_back(tc);
             regs_[(int)Reg::RAX] = 0;
             rip += len;
             steps++;
@@ -572,6 +635,13 @@ TraceResult Tracer::trace(uint32_t startRVA, uint32_t maxSteps) {
         }
 
         ExecAction action = execInstr(instr, rip);
+
+        if (progressTimeout_ > 0 && instr.dst.isReg() && (uint16_t)instr.dst.reg < 16) {
+            uint64_t v = regs_[(uint16_t)instr.dst.reg];
+            if (v >= imageBase_ && (uint32_t)(v - imageBase_) < soiCheck)
+                lastProgress_ = steps;
+        }
+
         if (action == STOP) {
             rip += len;
             continue;

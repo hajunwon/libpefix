@@ -165,6 +165,8 @@ struct Block {
 struct DispatchKey {
     Reg reg = Reg::NONE;
     uint32_t value = 0;
+    std::vector<uint32_t> imulConsts;
+    uint32_t firstImulRVA = 0;
 };
 
 struct Func {
