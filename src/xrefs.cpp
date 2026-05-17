@@ -49,6 +49,8 @@ static bool opcodeHasModRM_2byte(uint8_t op2) {
         case 0x30: case 0x31: case 0x32: case 0x33: case 0x34: case 0x35:
         case 0x36: case 0x37:
         case 0x77:
+        case 0x80: case 0x81: case 0x82: case 0x83: case 0x84: case 0x85: case 0x86: case 0x87:
+        case 0x88: case 0x89: case 0x8A: case 0x8B: case 0x8C: case 0x8D: case 0x8E: case 0x8F:
         case 0xA0: case 0xA1: case 0xA8: case 0xA9:
         case 0xC8: case 0xC9: case 0xCA: case 0xCB:
         case 0xCC: case 0xCD: case 0xCE: case 0xCF:
@@ -66,6 +68,39 @@ static int immSize_2byte(uint8_t op2, bool /*has66*/) {
     if (op2 == 0xC6) return 1;
     if (op2 == 0xBA) return 1;
     if (op2 == 0xA4 || op2 == 0xAC) return 1;
+    return 0;
+}
+
+// Operand byte count for no-ModRM 1-byte opcodes with immediate. Returns 0
+// for unknown or self-contained opcodes.
+static int noModRMOperandSize_1byte(uint8_t op, bool has66, bool rexW) {
+    if (op == 0x04 || op == 0x0C || op == 0x14 || op == 0x1C ||
+        op == 0x24 || op == 0x2C || op == 0x34 || op == 0x3C) return 1;       // arith AL,imm8
+    if (op == 0x05 || op == 0x0D || op == 0x15 || op == 0x1D ||
+        op == 0x25 || op == 0x2D || op == 0x35 || op == 0x3D) return has66 ? 2 : 4; // arith EAX,imm
+    if (op == 0x68) return has66 ? 2 : 4;       // PUSH imm32
+    if (op == 0x6A) return 1;                    // PUSH imm8
+    if (op >= 0x70 && op <= 0x7F) return 1;     // Jcc rel8
+    if (op >= 0xA0 && op <= 0xA3) return 8;     // MOV AL/EAX, moffs64
+    if (op == 0xA8) return 1;
+    if (op == 0xA9) return has66 ? 2 : 4;
+    if (op >= 0xB0 && op <= 0xB7) return 1;     // MOV r8, imm8
+    if (op >= 0xB8 && op <= 0xBF) {              // MOV r32/r64, imm32/imm64
+        if (rexW) return 8;
+        return has66 ? 2 : 4;
+    }
+    if (op == 0xC2 || op == 0xCA) return 2;     // RET imm16
+    if (op == 0xC8) return 3;                    // ENTER imm16, imm8
+    if (op == 0xCD) return 1;                    // INT imm8
+    if (op >= 0xE0 && op <= 0xE3) return 1;     // LOOP / JCXZ rel8
+    if (op >= 0xE4 && op <= 0xE7) return 1;     // IN/OUT imm8
+    if (op == 0xE8 || op == 0xE9) return 4;     // CALL/JMP rel32
+    if (op == 0xEB) return 1;                    // JMP rel8
+    return 0;
+}
+
+static int noModRMOperandSize_2byte(uint8_t op2, bool /*has66*/) {
+    if (op2 >= 0x80 && op2 <= 0x8F) return 4;   // Jcc rel32
     return 0;
 }
 
@@ -149,7 +184,16 @@ static void scanForRipRelative(
         }
 
         if (!hasModRM) {
-            pos = instrStart + 1;
+            int operandLen = is2byte
+                ? noModRMOperandSize_2byte(op2, has66)
+                : (is3byte38 || is3byte3A) ? 0
+                : noModRMOperandSize_1byte(op1, has66, (rex & 0x08) != 0);
+            if (operandLen == 0) {
+                // Unknown / no operand: only advance 1 byte to keep search exhaustive
+                pos = instrStart + 1;
+            } else {
+                pos += operandLen;
+            }
             continue;
         }
 
