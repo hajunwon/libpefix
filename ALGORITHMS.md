@@ -79,3 +79,58 @@ flowchart LR
     E -->|depth < max| C
     E -->|depth reached| F[Output: discovered function names]
 ```
+
+## Function boundary recovery (FBR)
+
+Discovers function starts in both `.text` and obfuscated executable sections
+(`.grfn1`, `.riot*`). Combines structured metadata seeds with caller-driven
+expansion, then runs a score-based filter so heuristic-only candidates are kept
+out unless multiple independent signals agree.
+
+```mermaid
+flowchart TD
+    S1[Seed pdata: RUNTIME_FUNCTION.BeginAddress] --> M
+    S2[Seed exports: PE export RVAs] --> M
+    S3[Seed RTTI vfuncs: vtable slots from parseRTTI] --> M
+    S4[Seed data fnptrs: 8B-aligned QWORDs to code] --> M
+    S5[Seed EH handlers: UNWIND_INFO.ExceptionHandler] --> M
+
+    M[Merge by RVA<br/>sourceCount += distinct sources] --> EXP
+
+    subgraph EXP[Caller-driven expansion: up to 8 iters]
+        EXP1[Linear sweep each frontier func] --> EXP2{E8 direct CALL?}
+        EXP2 -->|Yes| EXP3[target -> SRC_DIRECT_CALL]
+        EXP2 -->|No| EXP4{E9 tail-call?<br/>byte after JMP is CC/00/90}
+        EXP4 -->|Yes| EXP5[target -> SRC_DIRECT_JMP]
+    end
+
+    EXP --> SCORE
+
+    subgraph SCORE[Score-based validation]
+        SC1[+2 if sourceCount >= 2] --> SC2[+2 if strong source<br/>pdata/export/RTTI/EH]
+        SC2 --> SC3[+1 if direct-call seed]
+        SC3 --> SC4[+1 if data fnptr seed]
+        SC4 --> SC5[+1 if prologue match]
+        SC5 --> SC6[+1 if prev byte terminates<br/>CC/00/C3/E9-end/EB-end/FF25/UD2/FF /4]
+        SC6 --> SC7{Only-weak gate:<br/>no strong source AND<br/>sourceCount < 2}
+        SC7 -->|Yes| SC8{prologue AND prev-term?}
+        SC8 -->|No| REJ[Reject]
+        SC8 -->|Yes| ACC
+        SC7 -->|No| SC9{score >= 2?}
+        SC9 -->|Yes| ACC[Accept]
+        SC9 -->|No| REJ
+    end
+
+    SCORE --> END[computeFuncEnd:<br/>linear scan to next strong-anchor start,<br/>stop on RET/JMP+pad/UD2/4-byte pad run]
+    END --> OVL[Overlap resolution:<br/>swap with prev when newScore > prevScore<br/>else discard inner candidate]
+    OVL --> OUT[Sorted FunctionBoundary list]
+```
+
+Strong sources (pdata / export / RTTI / EH) are treated as ground truth: each
+alone is sufficient. Data-fnptr is a weaker signal — any QWORD in `.data`/`.rdata`
+that happens to point into code counts toward the score but is not by itself
+proof of a real function start. The only-weak gate exists because a single
+direct-call target plus prologue match still passes through too many
+internal-branch targets (helpers, recursive calls, switch arms) — requiring
+both prologue AND prev-byte terminator on weak-only candidates removes the
+bulk of those false positives.
