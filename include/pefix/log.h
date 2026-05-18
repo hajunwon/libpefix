@@ -15,6 +15,6 @@ void fail(const char* fmt, ...);
 void warn(const char* fmt, ...);
 void info(const char* fmt, ...);
 void detail(const char* fmt, ...);
-void raw(const char* fmt, ...);   // no prefix, no auto-newline — drop-in printf
+void raw(const char* fmt, ...);   // no prefix, no auto-newline  - drop-in printf
 
 } // namespace pefix::log

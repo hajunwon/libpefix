@@ -6,7 +6,7 @@
 namespace pefix {
 
 // Function source bitmask. A boundary may carry several when multiple
-// independent seeds vote for the same RVA — higher source count = higher
+// independent seeds vote for the same RVA  - higher source count = higher
 // confidence the start is real.
 enum FunctionSource : uint16_t {
     SRC_PDATA       = 1 << 0,  // RUNTIME_FUNCTION.BeginAddress

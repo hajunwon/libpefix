@@ -19,7 +19,7 @@ struct ExecSection {
     uint32_t endRVA;
     uint32_t rawOff;
     uint32_t rawSize;
-    bool     isObfuscated;  // not the canonical .text — i.e. .grfn1 / .riot* etc.
+    bool     isObfuscated;  // not the canonical .text  - i.e. .grfn1 / .riot* etc.
 };
 
 struct DataSection {
@@ -73,7 +73,7 @@ Ctx collectSections(const PEFile& pe, uint64_t imageBase) {
     return ctx;
 }
 
-// Step 1.a — RUNTIME_FUNCTION.BeginAddress
+// Step 1.a  - RUNTIME_FUNCTION.BeginAddress
 void seedPdata(const Ctx& ctx, std::vector<uint32_t>& out) {
     if (!ctx.pdataRaw) return;
     uint32_t end = std::min<uint32_t>(ctx.pdataRaw + ctx.pdataSize, (uint32_t)ctx.pe.data.size());
@@ -88,7 +88,7 @@ void seedPdata(const Ctx& ctx, std::vector<uint32_t>& out) {
     }
 }
 
-// Step 1.b — PE export table
+// Step 1.b  - PE export table
 void seedExports(const Ctx& ctx, std::vector<uint32_t>& out) {
     auto exports = readExports(ctx.pe);
     for (auto& e : exports) {
@@ -98,7 +98,7 @@ void seedExports(const Ctx& ctx, std::vector<uint32_t>& out) {
     }
 }
 
-// Step 1.c — RTTI vtable methods (parseRTTI already walks vftables)
+// Step 1.c  - RTTI vtable methods (parseRTTI already walks vftables)
 void seedRttiVfunc(const Ctx& ctx, std::vector<uint32_t>& out) {
     auto classes = parseRTTI(ctx.pe, ctx.imageBase);
     for (auto& cls : classes) {
@@ -111,7 +111,7 @@ void seedRttiVfunc(const Ctx& ctx, std::vector<uint32_t>& out) {
     }
 }
 
-// Step 1.d — function pointers stored in .data / .rdata (8-byte aligned QWORDs
+// Step 1.d  - function pointers stored in .data / .rdata (8-byte aligned QWORDs
 // whose value lands inside an executable section).
 void seedDataFnPtr(const Ctx& ctx, std::vector<uint32_t>& out) {
     for (auto& ds : ctx.data) {
@@ -126,7 +126,7 @@ void seedDataFnPtr(const Ctx& ctx, std::vector<uint32_t>& out) {
     }
 }
 
-// Step 1.e — UNWIND_INFO.ExceptionHandler (Flags & UNW_FLAG_EHANDLER).
+// Step 1.e  - UNWIND_INFO.ExceptionHandler (Flags & UNW_FLAG_EHANDLER).
 // Layout (x86-64): UNWIND_INFO header { Version:3; Flags:5; SizeOfProlog; CountOfCodes; FrameRegister; }
 // followed by CountOfCodes UNWIND_CODEs, then optional 4-byte ExceptionHandler RVA.
 void seedEhHandler(const Ctx& ctx, std::vector<uint32_t>& out) {
@@ -188,7 +188,7 @@ bool looksLikeInstrStart(uint8_t b) {
 
 // Match against the small set of byte sequences MSVC almost always emits at
 // the very start of a function. The patterns below were chosen because each
-// of them is rare *inside* a function body — observing the sequence at offset
+// of them is rare *inside* a function body  - observing the sequence at offset
 // 0 of a candidate makes it very likely (>90% in spot checks) to be a real
 // function start, while non-matches mean nothing on their own.
 bool matchesPrologue(const PEFile& pe, uint32_t fileOff) {
@@ -202,7 +202,7 @@ bool matchesPrologue(const PEFile& pe, uint32_t fileOff) {
     switch (p[0]) {
     case 0x55: case 0x53: case 0x56: case 0x57:        // push rbp/rbx/rsi/rdi
         return true;
-    case 0x51: case 0x52:                              // push rcx/rdx — common in callee-saving thunks
+    case 0x51: case 0x52:                              // push rcx/rdx  - common in callee-saving thunks
         return true;
     }
 
@@ -210,7 +210,7 @@ bool matchesPrologue(const PEFile& pe, uint32_t fileOff) {
     // nullsubs / equivalents. Each pattern is rare *inside* a function body.
     if (avail >= 5 && p[0] == 0xE9) {
         // Treat E9 as a function start only when the byte immediately after the
-        // 5-byte JMP is padding — i.e. the thunk genuinely ends here.
+        // 5-byte JMP is padding  - i.e. the thunk genuinely ends here.
         if (avail < 6) return true;
         uint8_t after = p[5];
         if (after == 0xCC || after == 0x00 || after == 0x90) return true;
@@ -223,11 +223,11 @@ bool matchesPrologue(const PEFile& pe, uint32_t fileOff) {
     if (avail < 6) return false;
 
     // 6-byte: REX.W + jmp rel32 (`48 E9 disp32`). Used as an import thunk
-    // even though REX.W doesn't change semantics on a jump — MSVC emits it
+    // even though REX.W doesn't change semantics on a jump  - MSVC emits it
     // for the IAT path it can reach via 32-bit displacement.
     if (p[0] == 0x48 && p[1] == 0xE9) return true;
 
-    // 8-byte: `lea rax, [rip+disp32]; ret` — a constant-return thunk used by
+    // 8-byte: `lea rax, [rip+disp32]; ret`  - a constant-return thunk used by
     // protobuf descriptor accessors and similar functions.
     if (avail >= 8 && p[0] == 0x48 && p[1] == 0x8D && p[2] == 0x05 &&
         p[7] == 0xC3) return true;
@@ -255,7 +255,7 @@ bool matchesPrologue(const PEFile& pe, uint32_t fileOff) {
 
     if (avail < 4) return false;
 
-    // 4-byte: mov [rsp+disp], <reg64> — extremely common save sequence
+    // 4-byte: mov [rsp+disp], <reg64>  - extremely common save sequence
     //   48 89 5C 24    mov [rsp+...], rbx
     //   48 89 4C 24    mov [rsp+...], rcx
     //   48 89 54 24    mov [rsp+...], rdx
@@ -288,7 +288,7 @@ bool matchesPrologue(const PEFile& pe, uint32_t fileOff) {
 
 // Is the byte immediately before 'fileOff' a function terminator? Recognised:
 //   CC (INT3 padding), 90 (NOP padding), 00 (zero padding),
-//   C3 (RET), C2 ?? ?? (RET imm — checked via two bytes earlier),
+//   C3 (RET), C2 ?? ?? (RET imm  - checked via two bytes earlier),
 //   E9 disp32 immediately preceding (unconditional JMP),
 //   EB disp8 immediately preceding (short JMP),
 //   FF 25 disp32 ending here (indirect JMP),
@@ -315,7 +315,7 @@ bool prevByteTerminates(const PEFile& pe, uint32_t fileOff) {
     return false;
 }
 
-// "Strong" sources are the ones backed by structured metadata on disk —
+// "Strong" sources are the ones backed by structured metadata on disk  - 
 // pdata, the export table, an RTTI vftable slot, or an EH handler entry.
 // Each by itself is sufficient evidence a real function lives at that RVA.
 // DATA_FNPTR isn't here because a random QWORD in .data/.rdata that happens
@@ -336,7 +336,7 @@ int confidenceScore(const FunctionBoundary& fb) {
 
 // Linear scan from startRVA until we see a function-terminator pattern
 // (RET / JMP-uncond / UD2 followed by padding) or hit nextStartRVA. We don't
-// run a full disasm — instead we look for the four byte patterns that mark
+// run a full disasm  - instead we look for the four byte patterns that mark
 // the very end of a function in MSVC x64 binaries.
 uint32_t computeFuncEnd(const Ctx& ctx, uint32_t startRVA, uint32_t hardLimitRVA) {
     int es = ctx.findExec(startRVA);
@@ -373,7 +373,7 @@ uint32_t computeFuncEnd(const Ctx& ctx, uint32_t startRVA, uint32_t hardLimitRVA
             continue;
         }
 
-        // RET / RET imm — function end if followed by padding
+        // RET / RET imm  - function end if followed by padding
         if (b == 0xC3) {
             if (peekPad(pos + 1)) return rvaOf(pos + 1);
             pos += 1; continue;
@@ -383,12 +383,12 @@ uint32_t computeFuncEnd(const Ctx& ctx, uint32_t startRVA, uint32_t hardLimitRVA
             pos += 3; continue;
         }
 
-        // JMP rel32 — function end if followed by padding
+        // JMP rel32  - function end if followed by padding
         if (b == 0xE9 && pos + 5 <= limitOff) {
             if (peekPad(pos + 5)) return rvaOf(pos + 5);
             pos += 5; continue;
         }
-        // JMP rel8 — function end if followed by padding
+        // JMP rel8  - function end if followed by padding
         if (b == 0xEB && pos + 2 <= limitOff) {
             if (peekPad(pos + 2)) return rvaOf(pos + 2);
             pos += 2; continue;
@@ -408,7 +408,7 @@ uint32_t computeFuncEnd(const Ctx& ctx, uint32_t startRVA, uint32_t hardLimitRVA
     return rvaOf(limitOff);
 }
 
-// Step 2 — linear-sweep call/jmp scan inside a candidate function. Yields the
+// Step 2  - linear-sweep call/jmp scan inside a candidate function. Yields the
 // raw E8/E9 target RVAs. Conservative: stops at the first byte that doesn't
 // look like an instruction start (likely padding or another function).
 void scanCallsAndJumps(const Ctx& ctx, uint32_t startRVA, uint32_t maxScan,
@@ -441,7 +441,7 @@ void scanCallsAndJumps(const Ctx& ctx, uint32_t startRVA, uint32_t maxScan,
             if (run >= 4) break;
         }
 
-        // Direct CALL — always treat target as a function start candidate.
+        // Direct CALL  - always treat target as a function start candidate.
         if (b == 0xE8) {
             if (pos + 5 > limit) break;
             int32_t disp = *(int32_t*)(ctx.pe.data.data() + pos + 1);
@@ -451,7 +451,7 @@ void scanCallsAndJumps(const Ctx& ctx, uint32_t startRVA, uint32_t maxScan,
             continue;
         }
 
-        // Direct JMP — only treat the target as a function start when this
+        // Direct JMP  - only treat the target as a function start when this
         // E9 is a *tail call*, i.e. the bytes immediately following the JMP
         // are padding (CC/00/90/run). Otherwise it's a normal intra-function
         // branch and the target is just a basic-block leader.
@@ -482,7 +482,7 @@ void scanCallsAndJumps(const Ctx& ctx, uint32_t startRVA, uint32_t maxScan,
             if (b2 >= 0x80 && b2 <= 0x8F) { pos += 6; continue; }
         }
 
-        // RET — function end
+        // RET  - function end
         if (b == 0xC3) { pos += 1; break; }
         if (b == 0xC2) { pos += 3; break; }
 
@@ -695,7 +695,7 @@ FbrResult discoverFunctionBoundaries(const PEFile& pe, uint64_t imageBase,
 
     // computeFuncEnd: scan until the next "strong anchor" candidate's start.
     // Strong anchors are pdata/export/RTTI/EH-backed boundaries or multi-
-    // source agreements — they are trustworthy enough to use as an upper
+    // source agreements  - they are trustworthy enough to use as an upper
     // bound. Weak singletons (single call/jmp/fnptr) are bypassed so the
     // linear sweep can run all the way to a real RET / JMP+pad. A weak
     // singleton sitting inside that range is then caught by the overlap
